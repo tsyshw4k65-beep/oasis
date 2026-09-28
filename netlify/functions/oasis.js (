@@ -1,0 +1,49 @@
+const CITIES = {
+  istanbul: { n: "Istanbul", lat: 41.01, lon: 28.97, q: "Istanbul" },
+  tashkent: { n: "Toshkent", lat: 41.31, lon: 69.24, q: "Uzbekistan" },
+};
+const LN = { uz: "o'zbek (lotin alifbosi)", en: "English", ru: "русский" };
+const H = { "content-type": "application/json" };
+
+async function claude(system, messages, max = 700) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: max, system, messages }),
+  });
+  const j = await r.json();
+  if (!j.content) throw new Error(JSON.stringify(j));
+  return j.content.map((c) => c.text || "").join("");
+}
+
+exports.handler = async (e) => {
+  if (process.env.OASIS_KEY && e.headers["x-oasis-key"] !== process.env.OASIS_KEY)
+    return { statusCode: 401, headers: H, body: "{}" };
+  try {
+    const { mode, lang = "uz", city = "istanbul", messages = [] } = JSON.parse(e.body || "{}");
+    const c = CITIES[city] || CITIES.istanbul;
+    const base = `Sen OASIS — Bobur ismli foydalanuvchining Jarvis kabi shaxsiy ovozli yordamchisisan. Do'stdek, iliq va qisqa gapir. Javobing ovozda o'qiladi: ro'yxat, belgi va emoji ishlatma. Javob tili: ${LN[lang] || LN.uz}.`;
+
+    if (mode === "brief") {
+      const [w, n] = await Promise.all([
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`).then((r) => r.json()),
+        fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(c.q)}%20when:1d&hl=en&gl=US&ceid=US:en`).then((r) => r.text()),
+      ]);
+      const titles = [...n.matchAll(/<item>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/g)].slice(0, 8).map((m) => m[1]);
+      const text = await claude(base, [{
+        role: "user",
+        content: `Bobur'ga salom ber va "${c.n}dagi so'nggi yangiliklarni aytib o'taman" de. Hozirgi ob-havo (${c.n}): ${JSON.stringify(w.current)} (weather_code WMO kodi). So'nggi sarlavhalar:\n${titles.join("\n")}\nOb-havoni bir gapda ayt, so'ng eng muhim 4-5 yangilikni qisqa tarjima qilib ayt. Faqat berilgan ma'lumotdan foydalan, o'ylab topma.`,
+      }]);
+      return { statusCode: 200, headers: H, body: JSON.stringify({ text }) };
+    }
+
+    const text = await claude(base, messages.slice(-10), 500);
+    return { statusCode: 200, headers: H, body: JSON.stringify({ text }) };
+  } catch (err) {
+    return { statusCode: 500, headers: H, body: JSON.stringify({ error: String(err) }) };
+  }
+};
