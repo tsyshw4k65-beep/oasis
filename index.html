@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>OASIS</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html,body{height:100%;margin:0;background:#020810;color:#bfe8ff;font-family:-apple-system,system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;text-align:center;padding:12px;box-sizing:border-box}
+h1{letter-spacing:.6em;font-weight:200;margin:4px 0 0;color:#39d0ff;font-size:22px}
+canvas{width:min(92vw,52vh);height:min(92vw,52vh)}
+#st{min-height:4.2em;font-size:14px;opacity:.85;max-width:92%;overflow:hidden}
+#row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button,select{background:#06213a;color:#39d0ff;border:1px solid #39d0ff;border-radius:999px;padding:11px 16px;font-size:15px}
+</style></head><body>
+<h1>OASIS</h1>
+<canvas id="c" width="800" height="800"></canvas>
+<div id="st">Ishga tushirish tugmasini bosing</div>
+<div id="row">
+<button id="go">Ishga tushir</button><button id="stop">Yetarli</button><button id="now">Yangiliklar</button>
+<select id="lang"><option value="uz">O'zbek</option><option value="en">English</option><option value="ru">Русский</option></select>
+<select id="city"><option value="istanbul">Istanbul</option><option value="tashkent">Toshkent</option></select>
+<select id="every"><option value="0">Avto: o'chiq</option><option value="1">Har 1 soat</option><option value="5">Har 5 soat</option><option value="12">Har 12 soat</option></select>
+</div>
+<script>
+const API='/.netlify/functions/oasis',$=id=>document.getElementById(id),LS=localStorage;
+const LOC={uz:'uz-UZ',en:'en-US',ru:'ru-RU'};
+let state='idle',active=false,busy=false,rec=null,hist=[],nextAt=0,wake=null,amp=0,t=0;
+$('lang').value=LS.lang||'uz';$('city').value=LS.city||'istanbul';$('every').value=LS.every||'0';
+['lang','city','every'].forEach(k=>$(k).onchange=()=>{LS[k]=$(k).value;if(k=='every')sched();if(k=='lang'&&rec)rec.lang=LOC[$('lang').value];});
+function sched(){const h=+$('every').value;nextAt=h?Date.now()+h*3600e3:0;}
+function S(s,txt){state=s;if(txt!==undefined)$('st').textContent=txt;}
+
+/* ---- Jarvis animation ---- */
+const cv=$('c'),g=cv.getContext('2d'),N=96,noise=Array.from({length:N},()=>Math.random()*6);
+function frame(){t+=.016;
+ const tgt={idle:.1,listening:.28,thinking:.55,speaking:1}[state];amp+=(tgt-amp)*.06;
+ const sp=state=='speaking',cy=sp?'57,208,255':'57,208,255',au=sp?'255,179,71':'57,208,255';
+ g.clearRect(0,0,800,800);g.save();g.translate(400,400);
+ const glow=g.createRadialGradient(0,0,10,0,0,260);glow.addColorStop(0,`rgba(${au},${.25+amp*.35})`);glow.addColorStop(1,'rgba(0,0,0,0)');
+ g.fillStyle=glow;g.beginPath();g.arc(0,0,260,0,7);g.fill();
+ // outer tick ring
+ g.save();g.rotate(t*(.15+amp*.5));g.strokeStyle=`rgba(${cy},.8)`;
+ for(let i=0;i<120;i++){const a=i/120*6.283,L=i%5?10:22;g.lineWidth=i%5?1:2;g.beginPath();g.moveTo(Math.cos(a)*370,Math.sin(a)*370);g.lineTo(Math.cos(a)*(370-L),Math.sin(a)*(370-L));g.stroke();}g.restore();
+ // arc segments
+ for(let k=0;k<3;k++){g.save();g.rotate((k%2?-1:1)*t*(.3+k*.2+amp*.8)+k*2);g.strokeStyle=`rgba(${k==1?au:cy},${.75-k*.15})`;g.lineWidth=4-k;
+  g.beginPath();g.arc(0,0,320-k*32,0,1.5+k*.5);g.stroke();g.beginPath();g.arc(0,0,320-k*32,3.4,4.4+k*.3);g.stroke();g.restore();}
+ // waveform ring
+ g.strokeStyle=`rgba(${sp?au:cy},.95)`;g.lineWidth=3;g.beginPath();
+ for(let i=0;i<=N;i++){const a=i/N*6.283,w=Math.sin(t*(4+amp*6)+noise[i%N])*Math.sin(a*5+t*2);
+  const r=170+w*(8+amp*46);const x=Math.cos(a)*r,y=Math.sin(a)*r;i?g.lineTo(x,y):g.moveTo(x,y);}
+ g.closePath();g.stroke();
+ // spokes when speaking
+ if(amp>.3){g.strokeStyle=`rgba(${au},.5)`;g.lineWidth=2;for(let i=0;i<N;i+=2){const a=i/N*6.283,l=Math.abs(Math.sin(t*9+noise[i]))*amp*40;
+  g.beginPath();g.moveTo(Math.cos(a)*205,Math.sin(a)*205);g.lineTo(Math.cos(a)*(205+l),Math.sin(a)*(205+l));g.stroke();}}
+ // core
+ g.fillStyle=`rgba(${au},.9)`;g.beginPath();g.arc(0,0,44+Math.sin(t*3)*4+amp*22*Math.abs(Math.sin(t*7)),0,7);g.fill();
+ g.strokeStyle=`rgba(${cy},.9)`;g.lineWidth=2;g.beginPath();g.arc(0,0,78+amp*8,0,7);g.stroke();
+ g.restore();requestAnimationFrame(frame);}
+frame();
+
+/* ---- speech ---- */
+function speak(text){return new Promise(res=>{
+ speechSynthesis.cancel();S('speaking',text);
+ const parts=text.match(/[^.!?\n]+[.!?]*/g)||[text];let i=0;
+ const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-').startsWith(LOC[$('lang').value].slice(0,2)));
+ const next=()=>{if(i>=parts.length||state!=='speaking'){res();return;}
+  const u=new SpeechSynthesisUtterance(parts[i++]);u.lang=LOC[$('lang').value];if(v)u.voice=v;u.onend=next;u.onerror=next;speechSynthesis.speak(u);};
+ next();});}
+function halt(){speechSynthesis.cancel();S(active?'listening':'idle',active?'Eshitmoqdaman...':'');}
+async function call(body){
+ const h={'content-type':'application/json'};if(LS.key)h['x-oasis-key']=LS.key;
+ const r=await fetch(API,{method:'POST',headers:h,body:JSON.stringify({lang:$('lang').value,city:$('city').value,...body})});
+ if(r.status==401){LS.key=prompt('OASIS kaliti:')||'';throw new Error('kalit kerak');}
+ const j=await r.json();if(!j.text)throw new Error(j.error||'javob yo\'q');return j.text;}
+async function brief(){if(busy)return;busy=true;S('thinking','Yangiliklar olinmoqda...');
+ try{await speak(await call({mode:'brief'}));}catch(e){S('idle','Xatolik: '+e.message);}
+ busy=false;if(active)S('listening','Eshitmoqdaman...');}
+async function chat(tx){if(busy)return;busy=true;S('thinking','...');hist.push({role:'user',content:tx});
+ try{const a=await call({mode:'chat',messages:hist});hist.push({role:'assistant',content:a});await speak(a);}
+ catch(e){S('idle','Xatolik: '+e.message);}
+ busy=false;if(active)S('listening','Eshitmoqdaman...');}
+function listen(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return;
+ rec=new SR();rec.lang=LOC[$('lang').value];rec.continuous=true;
+ rec.onresult=e=>{const tx=e.results[e.results.length-1][0].transcript.trim().toLowerCase();
+  if(/yetarli|bo'ldi|to'xta|stop|enough|хватит|достаточно|стоп/.test(tx)){halt();return;}
+  if(state==='speaking'||busy)return;
+  if(/yangilik|news|новост|ob-havo|weather|погод/.test(tx))brief();else chat(tx);};
+ rec.onend=()=>{if(active)setTimeout(()=>{try{rec.start()}catch(e){}},300);};
+ try{rec.start()}catch(e){}}
+async function keepAwake(){try{wake=await navigator.wakeLock.request('screen');}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(active&&document.visibilityState=='visible')keepAwake();});
+$('go').onclick=()=>{if(active)return;active=true;$('go').hidden=true;
+ speechSynthesis.speak(new SpeechSynthesisUtterance(''));keepAwake();listen();sched();brief();};
+$('stop').onclick=halt;$('now').onclick=()=>{active=true;brief();};
+setInterval(()=>{if(active&&nextAt&&Date.now()>=nextAt&&!busy){sched();brief();}},15000);
+</script></body></html>
